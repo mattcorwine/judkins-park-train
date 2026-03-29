@@ -150,16 +150,23 @@
       document.getElementById('top').innerHTML =
         `<p>If Coburn leaves now, he would wait ${fmtWait(seattleWait)} for the Seattle train and ${fmtWait(redmondWait)} for the Redmond train.</p>`;
 
-      let bottom = '';
+      const stops = [];
       if (wMs && offsets?.intlDist != null)
-        bottom += `<p>He would get to International District at ${fmtTime(wMs + offsets.intlDist)}.</p>`;
+        stops.push(`International District at ${fmtTime(wMs + offsets.intlDist)}`);
       if (wMs && offsets?.westlake != null)
-        bottom += `<p>He would get to Westlake at ${fmtTime(wMs + offsets.westlake)}.</p>`;
+        stops.push(`Westlake at ${fmtTime(wMs + offsets.westlake)}`);
       if (wMs && offsets?.capitolHill != null)
-        bottom += `<p>He would get to Capitol Hill at ${fmtTime(wMs + offsets.capitolHill)}.</p>`;
+        stops.push(`Capitol Hill at ${fmtTime(wMs + offsets.capitolHill)}`);
       if (eMs && offsets?.redmondTech != null)
-        bottom += `<p>He would get to Microsoft at ${fmtTime(eMs + offsets.redmondTech + WALK_TO_BUILDING * 60000)}.</p>`;
-      document.getElementById('bottom').innerHTML = bottom;
+        stops.push(`Microsoft at ${fmtTime(eMs + offsets.redmondTech + WALK_TO_BUILDING * 60000)}`);
+
+      if (stops.length) {
+        const last = stops.pop();
+        const sentence = stops.length
+          ? `He would get to ${stops.join(', ')}, and ${last}.`
+          : `He would get to ${last}.`;
+        document.getElementById('bottom').innerHTML = `<p>${sentence}</p>`;
+      }
     }
 
     // ── Startup & refresh loop ───────────────────────────────────────────────
