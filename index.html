@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Judkins Park Train</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #111;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+
+    #message {
+      font-size: 1.4rem;
+      color: #e0e0e0;
+      text-align: center;
+      max-width: 500px;
+    }
+
+    #message p {
+      margin-bottom: 1rem;
+    }
+
+    #message p:last-child {
+      margin-bottom: 0;
+    }
+
+    .green {
+      color: #4cd964;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div id="message">Loading…</div>
+
+  <script>
+    const WALK_TO_STATION = 4;
+    const WALK_TO_BUILDING = 15;
+    const API_KEY = 'TEST';
+    const BASE = 'https://api.pugetsound.onebusaway.org/api/where';
+
+    function arrivalTime(a) {
+      return a.predicted && a.predictedArrivalTime > 0
+        ? a.predictedArrivalTime
+        : a.scheduledArrivalTime;
+    }
+
+    function nextCatchable(arrivals) {
+      const now = Date.now();
+      return arrivals
+        .filter(a => arrivalTime(a) > 0)
+        .sort((a, b) => arrivalTime(a) - arrivalTime(b))
+        .find(a => (arrivalTime(a) - now) / 60000 >= WALK_TO_STATION) ?? null;
+    }
+
+    async function fetchArrivals(stopId) {
+      const res = await fetch(`${BASE}/arrivals-and-departures-for-stop/${stopId}.json?key=${API_KEY}&minutesBefore=0&minutesAfter=90`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      return data?.data?.entry?.arrivalsAndDepartures ?? [];
+    }
+
+    async function getSeattleData() {
+      const arrivals = await fetchArrivals('40_E01-T1');
+      const next = nextCatchable(arrivals);
+      if (!next) return { wait: null, capitolHillArrival: null };
+
+      const wait = Math.round((arrivalTime(next) - Date.now()) / 60000 - WALK_TO_STATION);
+
+      const tripRes = await fetch(`${BASE}/trip-details/${next.tripId}.json?key=${API_KEY}`);
+      if (!tripRes.ok) return { wait, capitolHillArrival: null };
+      const tripData = await tripRes.json();
+
+      const serviceDate = tripData?.data?.entry?.serviceDate;
+      const stopTimes = tripData?.data?.entry?.schedule?.stopTimes ?? [];
+      const judkinsIdx = stopTimes.findIndex(st => st.stopId === '40_E01-T1');
+      const capStop = stopTimes.slice(judkinsIdx + 1).find(st => st.stopId === '40_99603' || st.stopId === '40_99610');
+      if (!capStop || !serviceDate) return { wait, capitolHillArrival: null };
+
+      return { wait, capitolHillArrival: serviceDate + capStop.arrivalTime * 1000 };
+    }
+
+    async function getRedmondData() {
+      const arrivals = await fetchArrivals('40_E01-T2');
+      const next = nextCatchable(arrivals);
+      if (!next) return { wait: null, microsoftArrival: null };
+
+      const wait = Math.round((arrivalTime(next) - Date.now()) / 60000 - WALK_TO_STATION);
+
+      const tripRes = await fetch(`${BASE}/trip-details/${next.tripId}.json?key=${API_KEY}`);
+      if (!tripRes.ok) return { wait, microsoftArrival: null };
+      const tripData = await tripRes.json();
+
+      const serviceDate = tripData?.data?.entry?.serviceDate;
+      const stopTimes = tripData?.data?.entry?.schedule?.stopTimes ?? [];
+      const redmondStop = stopTimes.find(st => st.stopId === '40_E27-T2');
+      if (!redmondStop || !serviceDate) return { wait, microsoftArrival: null };
+
+      const microsoftArrival = serviceDate + redmondStop.arrivalTime * 1000 + WALK_TO_BUILDING * 60000;
+      return { wait, microsoftArrival };
+    }
+
+    function fmtWait(mins) {
+      if (mins === null) return 'no trains found';
+      if (mins === 0) return '<span class="green">no wait</span>';
+      return `<span class="green">${mins} minute${mins === 1 ? '' : 's'}</span>`;
+    }
+
+    function fmtTime(ms) {
+      return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    }
+
+    async function refresh() {
+      try {
+        const [{ wait: seattleWait, capitolHillArrival }, { wait: redmondWait, microsoftArrival }] = await Promise.all([
+          getSeattleData(),
+          getRedmondData(),
+        ]);
+
+        let html = `<p>If you leave now, you will wait ${fmtWait(seattleWait)} for the Seattle train and ${fmtWait(redmondWait)} for the Redmond train.</p>`;
+
+        if (capitolHillArrival) {
+          html += `<p>You would get to Capitol Hill at <span class="green">${fmtTime(capitolHillArrival)}</span>.</p>`;
+        }
+
+        if (microsoftArrival) {
+          html += `<p>You would get to Microsoft at <span class="green">${fmtTime(microsoftArrival)}</span>.</p>`;
+        }
+
+        document.getElementById('message').innerHTML = html;
+      } catch (err) {
+        document.getElementById('message').textContent = `Error: ${err.message}`;
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 30000);
+  </script>
+</body>
+</html>
