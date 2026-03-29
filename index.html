@@ -11,32 +11,23 @@
       display: flex;
       flex-direction: column;
       justify-content: space-between;
+      align-items: stretch;
       min-height: 100vh;
       margin: 0;
-      padding: 24px;
-      box-sizing: border-box;
+      padding: 0;
     }
 
     .card {
-      font-size: 0.7rem;
+      font-size: 1.4rem;
       color: #e0e0e0;
       text-align: center;
       background: rgba(0, 0, 0, 0.55);
-      padding: 20px 28px;
-      border-radius: 16px;
+      padding: 12px 20px;
       backdrop-filter: blur(6px);
     }
 
     .card p {
-      margin-bottom: 0.75rem;
-    }
-
-    .card p:last-child {
-      margin-bottom: 0;
-    }
-
-    #top {
-      font-size: 0.875rem;
+      margin: 0;
     }
 
     .green {
@@ -157,17 +148,17 @@
       const eMs = eastNext ? predictedMs(eastNext) : null;
 
       document.getElementById('top').innerHTML =
-        `<p>If you leave now, you will wait ${fmtWait(seattleWait)} for the Seattle train and ${fmtWait(redmondWait)} for the Redmond train.</p>`;
+        `<p>If Coburn leaves now, he would wait ${fmtWait(seattleWait)} for the Seattle train and ${fmtWait(redmondWait)} for the Redmond train.</p>`;
 
       let bottom = '';
       if (wMs && offsets?.intlDist != null)
-        bottom += `<p>You would get to International District at ${fmtTime(wMs + offsets.intlDist)}.</p>`;
+        bottom += `<p>He would get to International District at ${fmtTime(wMs + offsets.intlDist)}.</p>`;
       if (wMs && offsets?.westlake != null)
-        bottom += `<p>You would get to Westlake at ${fmtTime(wMs + offsets.westlake)}.</p>`;
+        bottom += `<p>He would get to Westlake at ${fmtTime(wMs + offsets.westlake)}.</p>`;
       if (wMs && offsets?.capitolHill != null)
-        bottom += `<p>You would get to Capitol Hill at ${fmtTime(wMs + offsets.capitolHill)}.</p>`;
+        bottom += `<p>He would get to Capitol Hill at ${fmtTime(wMs + offsets.capitolHill)}.</p>`;
       if (eMs && offsets?.redmondTech != null)
-        bottom += `<p>You would get to Microsoft at ${fmtTime(eMs + offsets.redmondTech + WALK_TO_BUILDING * 60000)}.</p>`;
+        bottom += `<p>He would get to Microsoft at ${fmtTime(eMs + offsets.redmondTech + WALK_TO_BUILDING * 60000)}.</p>`;
       document.getElementById('bottom').innerHTML = bottom;
     }
 
