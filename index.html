@@ -82,10 +82,18 @@
       const serviceDate = tripData?.data?.entry?.serviceDate;
       const stopTimes = tripData?.data?.entry?.schedule?.stopTimes ?? [];
       const judkinsIdx = stopTimes.findIndex(st => st.stopId === '40_E01-T1');
-      const capStop = stopTimes.slice(judkinsIdx + 1).find(st => st.stopId === '40_99603' || st.stopId === '40_99610');
-      if (!capStop || !serviceDate) return { wait, capitolHillArrival: null };
+      const after = stopTimes.slice(judkinsIdx + 1);
+      const intlDistStop = after.find(st => st.stopId === '40_621');
+      const westlakeStop = after.find(st => st.stopId === '40_1121');
+      const capStop = after.find(st => st.stopId === '40_99603' || st.stopId === '40_99610');
+      if (!serviceDate) return { wait, intlDistArrival: null, westlakeArrival: null, capitolHillArrival: null };
 
-      return { wait, capitolHillArrival: serviceDate + capStop.arrivalTime * 1000 };
+      return {
+        wait,
+        intlDistArrival:    intlDistStop ? serviceDate + intlDistStop.arrivalTime * 1000 : null,
+        westlakeArrival:    westlakeStop ? serviceDate + westlakeStop.arrivalTime * 1000 : null,
+        capitolHillArrival: capStop      ? serviceDate + capStop.arrivalTime * 1000      : null,
+      };
     }
 
     async function getRedmondData() {
@@ -120,12 +128,20 @@
 
     async function refresh() {
       try {
-        const [{ wait: seattleWait, capitolHillArrival }, { wait: redmondWait, microsoftArrival }] = await Promise.all([
+        const [{ wait: seattleWait, intlDistArrival, westlakeArrival, capitolHillArrival }, { wait: redmondWait, microsoftArrival }] = await Promise.all([
           getSeattleData(),
           getRedmondData(),
         ]);
 
         let html = `<p>If you leave now, you will wait ${fmtWait(seattleWait)} for the Seattle train and ${fmtWait(redmondWait)} for the Redmond train.</p>`;
+
+        if (intlDistArrival) {
+          html += `<p>You would get to International District at <span class="green">${fmtTime(intlDistArrival)}</span>.</p>`;
+        }
+
+        if (westlakeArrival) {
+          html += `<p>You would get to Westlake at <span class="green">${fmtTime(westlakeArrival)}</span>.</p>`;
+        }
 
         if (capitolHillArrival) {
           html += `<p>You would get to Capitol Hill at <span class="green">${fmtTime(capitolHillArrival)}</span>.</p>`;
