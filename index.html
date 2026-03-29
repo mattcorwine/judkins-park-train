@@ -42,79 +42,85 @@
   <div id="message">Loading…</div>
 
   <script>
-    const WALK_TO_STATION = 4;
-    const WALK_TO_BUILDING = 15;
+    const WALK_TO_STATION  = 4;   // minutes
+    const WALK_TO_BUILDING = 15;  // minutes
     const API_KEY = 'TEST';
     const BASE = 'https://api.pugetsound.onebusaway.org/api/where';
 
-    function arrivalTime(a) {
-      return a.predicted && a.predictedArrivalTime > 0
-        ? a.predictedArrivalTime
-        : a.scheduledArrivalTime;
-    }
+    // Fixed travel-time offsets from Judkins Park, computed once from the timetable.
+    // Keys are milliseconds.
+    let offsets = null;
 
-    function nextCatchable(arrivals) {
-      const now = Date.now();
-      return arrivals
-        .filter(a => arrivalTime(a) > 0)
-        .sort((a, b) => arrivalTime(a) - arrivalTime(b))
-        .find(a => (arrivalTime(a) - now) / 60000 >= WALK_TO_STATION) ?? null;
-    }
+    // ── API helpers ──────────────────────────────────────────────────────────
 
     async function fetchArrivals(stopId) {
-      const res = await fetch(`${BASE}/arrivals-and-departures-for-stop/${stopId}.json?key=${API_KEY}&minutesBefore=0&minutesAfter=90`);
+      const res = await fetch(
+        `${BASE}/arrivals-and-departures-for-stop/${stopId}.json` +
+        `?key=${API_KEY}&minutesBefore=0&minutesAfter=90`
+      );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       return data?.data?.entry?.arrivalsAndDepartures ?? [];
     }
 
-    async function getSeattleData() {
-      const arrivals = await fetchArrivals('40_E01-T1');
-      const next = nextCatchable(arrivals);
-      if (!next) return { wait: null, capitolHillArrival: null };
+    const tripCache = {};
+    async function fetchTripEntry(tripId) {
+      if (!tripId) return null;
+      if (tripCache[tripId]) return tripCache[tripId];
+      const res = await fetch(`${BASE}/trip-details/${tripId}.json?key=${API_KEY}`);
+      if (!res.ok) return null;
+      const entry = (await res.json())?.data?.entry ?? null;
+      if (entry) tripCache[tripId] = entry;
+      return entry;
+    }
 
-      const wait = Math.round((arrivalTime(next) - Date.now()) / 60000 - WALK_TO_STATION);
+    // ── Timetable (one-time init) ────────────────────────────────────────────
 
-      const tripRes = await fetch(`${BASE}/trip-details/${next.tripId}.json?key=${API_KEY}`);
-      if (!tripRes.ok) return { wait, capitolHillArrival: null };
-      const tripData = await tripRes.json();
+    // Returns the scheduled travel time in ms between two stops within a trip.
+    function scheduleOffsetMs(stopTimes, fromId, toId) {
+      const from = stopTimes.find(s => s.stopId === fromId);
+      const to   = stopTimes.find(s => s.stopId === toId);
+      return (from && to) ? (to.arrivalTime - from.arrivalTime) * 1000 : null;
+    }
 
-      const serviceDate = tripData?.data?.entry?.serviceDate;
-      const stopTimes = tripData?.data?.entry?.schedule?.stopTimes ?? [];
-      const judkinsIdx = stopTimes.findIndex(st => st.stopId === '40_E01-T1');
-      const after = stopTimes.slice(judkinsIdx + 1);
-      const intlDistStop = after.find(st => st.stopId === '40_621');
-      const westlakeStop = after.find(st => st.stopId === '40_1121');
-      const capStop = after.find(st => st.stopId === '40_99603' || st.stopId === '40_99610');
-      if (!serviceDate) return { wait, intlDistArrival: null, westlakeArrival: null, capitolHillArrival: null };
+    async function loadOffsets(westArrivals, eastArrivals) {
+      const [westEntry, eastEntry] = await Promise.all([
+        fetchTripEntry(westArrivals[0]?.tripId),
+        fetchTripEntry(eastArrivals[0]?.tripId),
+      ]);
 
-      return {
-        wait,
-        intlDistArrival:    intlDistStop ? serviceDate + intlDistStop.arrivalTime * 1000 : null,
-        westlakeArrival:    westlakeStop ? serviceDate + westlakeStop.arrivalTime * 1000 : null,
-        capitolHillArrival: capStop      ? serviceDate + capStop.arrivalTime * 1000      : null,
+      const wSt = westEntry?.schedule?.stopTimes ?? [];
+      const eSt = eastEntry?.schedule?.stopTimes ?? [];
+
+      offsets = {
+        intlDist:    scheduleOffsetMs(wSt, '40_E01-T1', '40_621'),
+        westlake:    scheduleOffsetMs(wSt, '40_E01-T1', '40_1121'),
+        // Capitol Hill has two possible stop IDs depending on the trip
+        capitolHill: scheduleOffsetMs(wSt, '40_E01-T1', '40_99603')
+                  ?? scheduleOffsetMs(wSt, '40_E01-T1', '40_99610'),
+        redmondTech: scheduleOffsetMs(eSt, '40_E01-T2', '40_E27-T2'),
       };
     }
 
-    async function getRedmondData() {
-      const arrivals = await fetchArrivals('40_E01-T2');
-      const next = nextCatchable(arrivals);
-      if (!next) return { wait: null, microsoftArrival: null };
+    // ── Real-time logic ──────────────────────────────────────────────────────
 
-      const wait = Math.round((arrivalTime(next) - Date.now()) / 60000 - WALK_TO_STATION);
-
-      const tripRes = await fetch(`${BASE}/trip-details/${next.tripId}.json?key=${API_KEY}`);
-      if (!tripRes.ok) return { wait, microsoftArrival: null };
-      const tripData = await tripRes.json();
-
-      const serviceDate = tripData?.data?.entry?.serviceDate;
-      const stopTimes = tripData?.data?.entry?.schedule?.stopTimes ?? [];
-      const redmondStop = stopTimes.find(st => st.stopId === '40_E27-T2');
-      if (!redmondStop || !serviceDate) return { wait, microsoftArrival: null };
-
-      const microsoftArrival = serviceDate + redmondStop.arrivalTime * 1000 + WALK_TO_BUILDING * 60000;
-      return { wait, microsoftArrival };
+    function predictedMs(a) {
+      return a.predicted && a.predictedArrivalTime > 0
+        ? a.predictedArrivalTime
+        : a.scheduledArrivalTime;
     }
+
+    // Returns the next train that arrives at the station after the walk.
+    function nextCatchable(arrivals) {
+      const now = Date.now();
+      return arrivals
+        .filter(a => predictedMs(a) > 0)
+        .sort((a, b) => predictedMs(a) - predictedMs(b))
+        .find(a => (predictedMs(a) - now) / 60000 >= WALK_TO_STATION)
+        ?? null;
+    }
+
+    // ── Rendering ────────────────────────────────────────────────────────────
 
     function fmtWait(mins) {
       if (mins === null) return 'no trains found';
@@ -123,42 +129,74 @@
     }
 
     function fmtTime(ms) {
-      return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      return `<span class="green">${new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>`;
     }
 
+    function render(westArrivals, eastArrivals) {
+      const now      = Date.now();
+      const westNext = nextCatchable(westArrivals);
+      const eastNext = nextCatchable(eastArrivals);
+
+      const seattleWait = westNext
+        ? Math.round((predictedMs(westNext) - now) / 60000 - WALK_TO_STATION)
+        : null;
+      const redmondWait = eastNext
+        ? Math.round((predictedMs(eastNext) - now) / 60000 - WALK_TO_STATION)
+        : null;
+
+      // Predicted arrival time at Judkins Park for each direction.
+      const wMs = westNext ? predictedMs(westNext) : null;
+      const eMs = eastNext ? predictedMs(eastNext) : null;
+
+      let html = `<p>If you leave now, you will wait ${fmtWait(seattleWait)} for the Seattle train and ${fmtWait(redmondWait)} for the Redmond train.</p>`;
+
+      if (wMs && offsets?.intlDist != null)
+        html += `<p>You would get to International District at ${fmtTime(wMs + offsets.intlDist)}.</p>`;
+
+      if (wMs && offsets?.westlake != null)
+        html += `<p>You would get to Westlake at ${fmtTime(wMs + offsets.westlake)}.</p>`;
+
+      if (wMs && offsets?.capitolHill != null)
+        html += `<p>You would get to Capitol Hill at ${fmtTime(wMs + offsets.capitolHill)}.</p>`;
+
+      if (eMs && offsets?.redmondTech != null)
+        html += `<p>You would get to Microsoft at ${fmtTime(eMs + offsets.redmondTech + WALK_TO_BUILDING * 60000)}.</p>`;
+
+      document.getElementById('message').innerHTML = html;
+    }
+
+    // ── Startup & refresh loop ───────────────────────────────────────────────
+
     async function refresh() {
+      const [westArrivals, eastArrivals] = await Promise.all([
+        fetchArrivals('40_E01-T1'),
+        fetchArrivals('40_E01-T2'),
+      ]);
+      render(westArrivals, eastArrivals);
+    }
+
+    async function init() {
       try {
-        const [{ wait: seattleWait, intlDistArrival, westlakeArrival, capitolHillArrival }, { wait: redmondWait, microsoftArrival }] = await Promise.all([
-          getSeattleData(),
-          getRedmondData(),
+        // Fetch arrivals for both platforms.
+        const [westArrivals, eastArrivals] = await Promise.all([
+          fetchArrivals('40_E01-T1'),
+          fetchArrivals('40_E01-T2'),
         ]);
 
-        let html = `<p>If you leave now, you will wait ${fmtWait(seattleWait)} for the Seattle train and ${fmtWait(redmondWait)} for the Redmond train.</p>`;
+        // Use those same trips to compute fixed station-to-station offsets once.
+        await loadOffsets(westArrivals, eastArrivals);
 
-        if (intlDistArrival) {
-          html += `<p>You would get to International District at <span class="green">${fmtTime(intlDistArrival)}</span>.</p>`;
-        }
+        // Render immediately with the data we already have.
+        render(westArrivals, eastArrivals);
 
-        if (westlakeArrival) {
-          html += `<p>You would get to Westlake at <span class="green">${fmtTime(westlakeArrival)}</span>.</p>`;
-        }
-
-        if (capitolHillArrival) {
-          html += `<p>You would get to Capitol Hill at <span class="green">${fmtTime(capitolHillArrival)}</span>.</p>`;
-        }
-
-        if (microsoftArrival) {
-          html += `<p>You would get to Microsoft at <span class="green">${fmtTime(microsoftArrival)}</span>.</p>`;
-        }
-
-        document.getElementById('message').innerHTML = html;
+        // Then refresh real-time arrivals every 60 seconds (2 API calls/min).
+        setInterval(refresh, 60000);
       } catch (err) {
         document.getElementById('message').textContent = `Error: ${err.message}`;
       }
     }
 
-    refresh();
-    setInterval(refresh, 30000);
+    init();
   </script>
 </body>
 </html>
