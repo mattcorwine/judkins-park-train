@@ -7,28 +7,31 @@
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #111;
+      background: #111 url('bg.png') center/cover no-repeat;
       display: flex;
-      align-items: center;
-      justify-content: center;
+      flex-direction: column;
+      justify-content: space-between;
       min-height: 100vh;
       margin: 0;
       padding: 24px;
       box-sizing: border-box;
     }
 
-    #message {
-      font-size: 1.4rem;
+    .card {
+      font-size: 0.7rem;
       color: #e0e0e0;
       text-align: center;
-      max-width: 500px;
+      background: rgba(0, 0, 0, 0.55);
+      padding: 20px 28px;
+      border-radius: 16px;
+      backdrop-filter: blur(6px);
     }
 
-    #message p {
-      margin-bottom: 1rem;
+    .card p {
+      margin-bottom: 0.75rem;
     }
 
-    #message p:last-child {
+    .card p:last-child {
       margin-bottom: 0;
     }
 
@@ -39,7 +42,8 @@
   </style>
 </head>
 <body>
-  <div id="message">Loading…</div>
+  <div id="top" class="card">Loading…</div>
+  <div id="bottom" class="card"></div>
 
   <script>
     const WALK_TO_STATION  = 4;   // minutes
@@ -148,21 +152,19 @@
       const wMs = westNext ? predictedMs(westNext) : null;
       const eMs = eastNext ? predictedMs(eastNext) : null;
 
-      let html = `<p>If you leave now, you will wait ${fmtWait(seattleWait)} for the Seattle train and ${fmtWait(redmondWait)} for the Redmond train.</p>`;
+      document.getElementById('top').innerHTML =
+        `<p>If you leave now, you will wait ${fmtWait(seattleWait)} for the Seattle train and ${fmtWait(redmondWait)} for the Redmond train.</p>`;
 
+      let bottom = '';
       if (wMs && offsets?.intlDist != null)
-        html += `<p>You would get to International District at ${fmtTime(wMs + offsets.intlDist)}.</p>`;
-
+        bottom += `<p>You would get to International District at ${fmtTime(wMs + offsets.intlDist)}.</p>`;
       if (wMs && offsets?.westlake != null)
-        html += `<p>You would get to Westlake at ${fmtTime(wMs + offsets.westlake)}.</p>`;
-
+        bottom += `<p>You would get to Westlake at ${fmtTime(wMs + offsets.westlake)}.</p>`;
       if (wMs && offsets?.capitolHill != null)
-        html += `<p>You would get to Capitol Hill at ${fmtTime(wMs + offsets.capitolHill)}.</p>`;
-
+        bottom += `<p>You would get to Capitol Hill at ${fmtTime(wMs + offsets.capitolHill)}.</p>`;
       if (eMs && offsets?.redmondTech != null)
-        html += `<p>You would get to Microsoft at ${fmtTime(eMs + offsets.redmondTech + WALK_TO_BUILDING * 60000)}.</p>`;
-
-      document.getElementById('message').innerHTML = html;
+        bottom += `<p>You would get to Microsoft at ${fmtTime(eMs + offsets.redmondTech + WALK_TO_BUILDING * 60000)}.</p>`;
+      document.getElementById('bottom').innerHTML = bottom;
     }
 
     // ── Startup & refresh loop ───────────────────────────────────────────────
